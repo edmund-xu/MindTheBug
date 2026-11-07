@@ -45,3 +45,37 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+.coach-content {
+  margin-top: 20px;
+}
+
+.coach-content h4 {
+  color: #2563eb;
+  margin-bottom: 12px;
+}
+
+.coach-question {
+  background: #eff6ff;
+  padding: 14px;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.ai-panel textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.coach-hint {
+  background: #f0fdf4;
+  border-left: 4px solid #22c55e;
+  padding: 14px;
+  margin-top: 16px;
+  border-radius: 6px;
+}

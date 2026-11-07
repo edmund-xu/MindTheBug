@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { detectMisconception } from "./ai/misconceptions";
+import type { Misconception } from "./ai/misconceptions";
 import "./App.css";
 
 const starterCode = `numbers = [10, 20, 30]
@@ -18,6 +20,12 @@ function App() {
   const [output, setOutput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
+  const [misconception, setMisconception] =
+    useState<Misconception | null>(null);
+
+  const [studentAnswer, setStudentAnswer] = useState("");
+  const [showHint, setShowHint] = useState(false);
+
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
@@ -27,12 +35,21 @@ function App() {
     );
 
     worker.onmessage = (event: MessageEvent<PythonResult>) => {
-      setOutput(event.data.output);
+      const result = event.data;
+
+      setOutput(result.output);
       setIsRunning(false);
+
+      if (result.success) {
+        setMisconception(detectMisconception(result.output));
+      } else {
+        setMisconception(null);
+      }
     };
 
     worker.onerror = () => {
       setOutput("Failed to initialize Python runtime.");
+      setMisconception(null);
       setIsRunning(false);
     };
 
@@ -49,7 +66,17 @@ function App() {
 
     setIsRunning(true);
     setOutput("Running Python...");
+
+    setMisconception(null);
+    setStudentAnswer("");
+    setShowHint(false);
+
     workerRef.current.postMessage(code);
+  }
+
+  function checkUnderstanding() {
+    if (!studentAnswer.trim()) return;
+    setShowHint(true);
   }
 
   return (
@@ -84,10 +111,50 @@ function App() {
 
         <section className="ai-panel">
           <h3>AI Concept Coach</h3>
-          <p>
-            Run your code to explore possible programming
-            misconceptions.
-          </p>
+
+          {!misconception && (
+            <p>
+              Run code containing an error to explore a
+              possible programming misconception.
+            </p>
+          )}
+
+          {misconception && (
+            <div className="coach-content">
+              <h4>{misconception.title}</h4>
+
+              <p>{misconception.explanation}</p>
+
+              <div className="coach-question">
+                <strong>Conceptual Question:</strong>
+                <p>{misconception.question}</p>
+              </div>
+
+              <textarea
+                placeholder="Explain your understanding..."
+                value={studentAnswer}
+                onChange={(e) => {
+                  setStudentAnswer(e.target.value);
+                  setShowHint(false);
+                }}
+                rows={4}
+              />
+
+              <button
+                onClick={checkUnderstanding}
+                disabled={!studentAnswer.trim()}
+              >
+                Check Understanding
+              </button>
+
+              {showHint && (
+                <div className="coach-hint">
+                  <strong>Conceptual Hint:</strong>
+                  <p>{misconception.hint}</p>
+                </div>
+              )}
+            </div>
+          )}
         </section>
       </main>
     </div>
