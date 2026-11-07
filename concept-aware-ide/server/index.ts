@@ -4,8 +4,9 @@ import cors from "cors";
 import OpenAI from "openai";
 
 import {
-  misconceptionPrompt,
-  evaluationPrompt,
+    misconceptionPrompt,
+    evaluationPrompt,
+    codeGenerationPrompt,
 } from "./prompts";
 
 const app = express();
@@ -97,6 +98,64 @@ app.post("/api/evaluate", async (req, res) => {
   }
 });
 
+
+app.post("/api/generate", async (req, res) => {
+    try {
+      const { request } = req.body;
+  
+      if (
+        typeof request !== "string" ||
+        !request.trim() ||
+        request.length > 2000
+      ) {
+        res.status(400).json({
+          error: "Invalid code generation request",
+        });
+        return;
+      }
+  
+      const response = await client.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: codeGenerationPrompt,
+          },
+          {
+            role: "user",
+            content: request,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+  
+      const content = response.choices[0]?.message.content;
+  
+      if (!content) {
+        throw new Error("Empty AI response");
+      }
+  
+      const generated = JSON.parse(content);
+  
+      if (
+        typeof generated.code !== "string" ||
+        typeof generated.explanation !== "string" ||
+        typeof generated.question !== "string"
+      ) {
+        throw new Error("Invalid AI response structure");
+      }
+  
+      res.json(generated);
+    } catch (error) {
+      console.error("Code generation error:", error);
+  
+      res.status(500).json({
+        error: "Failed to generate Python code",
+      });
+    }
+  });  
+
 app.listen(3001, () => {
   console.log("AI server running on http://localhost:3001");
 });
+

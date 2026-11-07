@@ -96,3 +96,27 @@ pre {
   border-left: 4px solid #ef4444;
 }
 
+
+.mode-selector {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+}
+
+.mode-selector button {
+  background: #e2e8f0;
+  color: #334155;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 18px;
+  font-weight: 600;
+}
+
+.mode-selector button.active {
+  background: #2563eb;
+  color: white;
+}
+
+.mode-selector button:hover {
+  opacity: 0.9;
+}

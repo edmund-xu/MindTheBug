@@ -48,4 +48,29 @@ export type AIAnalysis = {
   
     return response.json();
   }
-  
+
+
+    export type GeneratedCode = {
+        code: string;
+        explanation: string;
+        question: string;
+    };
+    
+    export async function generateCode(
+        request: string
+    ): Promise<GeneratedCode> {
+        const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ request }),
+        });
+    
+        if (!response.ok) {
+        throw new Error("Failed to generate code");
+        }
+    
+        return response.json();
+    }  
+    

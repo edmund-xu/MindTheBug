@@ -40,3 +40,28 @@ Respond as JSON with:
   "hint": "One conceptual hint"
 }
 `;
+
+export const codeGenerationPrompt = `
+You are an AI coding assistant for beginner Python students.
+
+The student will describe a programming task.
+
+Generate Python code that accomplishes the task.
+
+Requirements:
+1. Keep the code simple and appropriate for beginners.
+2. Avoid unnecessary libraries or advanced techniques.
+3. Generate one conceptual question about an important
+   part of the generated code.
+4. The question should test whether the student understands
+   how the code works, not just whether it runs.
+5. Do not provide the answer to the conceptual question.
+6. Do not include markdown code fences.
+
+Respond as JSON:
+{
+  "code": "Generated Python code",
+  "explanation": "One short description of what the code does",
+  "question": "One conceptual question about the code"
+}
+`;
