@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
-import { detectMisconception } from "./ai/misconceptions";
-import type { Misconception } from "./ai/misconceptions";
+import {
+  analyzeCode,
+  evaluateAnswer,
+} from "./ai/api";
+import type {
+  AIAnalysis,
+  AIEvaluation,
+} from "./ai/api";
 import "./App.css";
 
 const starterCode = `numbers = [10, 20, 30]
@@ -20,13 +26,17 @@ function App() {
   const [output, setOutput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
-  const [misconception, setMisconception] =
-    useState<Misconception | null>(null);
+  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [studentAnswer, setStudentAnswer] = useState("");
-  const [showHint, setShowHint] = useState(false);
+  const [evaluation, setEvaluation] = useState<AIEvaluation | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+
+  const [error, setError] = useState("");
 
   const workerRef = useRef<Worker | null>(null);
+  const submittedCodeRef = useRef("");
 
   useEffect(() => {
     const worker = new Worker(
@@ -34,23 +44,48 @@ function App() {
       { type: "module" }
     );
 
-    worker.onmessage = (event: MessageEvent<PythonResult>) => {
+    worker.onmessage = async (event: MessageEvent<PythonResult>) => {
       const result = event.data;
 
       setOutput(result.output);
       setIsRunning(false);
 
-      if (result.success) {
-        setMisconception(detectMisconception(result.output));
-      } else {
-        setMisconception(null);
+      // Python errors are captured in the output string.
+      // The worker's success flag only indicates whether
+      // the runtime itself completed successfully.
+      const hasPythonError =
+        /(?:Traceback \(most recent call last\)|SyntaxError:|IndentationError:)/.test(
+          result.output
+        );
+
+      if (!result.success || !hasPythonError) {
+        return;
+      }
+
+      setIsAnalyzing(true);
+
+      try {
+        const aiResult = await analyzeCode(
+          submittedCodeRef.current,
+          result.output
+        );
+
+        setAnalysis(aiResult);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "AI analysis failed"
+        );
+      } finally {
+        setIsAnalyzing(false);
       }
     };
 
     worker.onerror = () => {
       setOutput("Failed to initialize Python runtime.");
-      setMisconception(null);
       setIsRunning(false);
+      setError("Python worker failed.");
     };
 
     workerRef.current = worker;
@@ -62,21 +97,43 @@ function App() {
   }, []);
 
   function runCode() {
-    if (!workerRef.current || isRunning) return;
+    if (!workerRef.current || isRunning || isAnalyzing) return;
+
+    submittedCodeRef.current = code;
 
     setIsRunning(true);
     setOutput("Running Python...");
-
-    setMisconception(null);
+    setAnalysis(null);
+    setEvaluation(null);
     setStudentAnswer("");
-    setShowHint(false);
+    setError("");
 
     workerRef.current.postMessage(code);
   }
 
-  function checkUnderstanding() {
-    if (!studentAnswer.trim()) return;
-    setShowHint(true);
+  async function checkUnderstanding() {
+    if (!analysis || !studentAnswer.trim() || isEvaluating) return;
+
+    setIsEvaluating(true);
+    setError("");
+
+    try {
+      const result = await evaluateAnswer(
+        submittedCodeRef.current,
+        analysis.question,
+        studentAnswer
+      );
+
+      setEvaluation(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Evaluation failed"
+      );
+    } finally {
+      setIsEvaluating(false);
+    }
   }
 
   return (
@@ -101,7 +158,10 @@ function App() {
             }}
           />
 
-          <button onClick={runCode} disabled={isRunning}>
+          <button
+            onClick={runCode}
+            disabled={isRunning || isAnalyzing}
+          >
             {isRunning ? "Running..." : "Run Code"}
           </button>
 
@@ -112,48 +172,67 @@ function App() {
         <section className="ai-panel">
           <h3>AI Concept Coach</h3>
 
-          {!misconception && (
+          {isAnalyzing && <p>Analyzing your code...</p>}
+
+          {!analysis && !isAnalyzing && (
             <p>
-              Run code containing an error to explore a
-              possible programming misconception.
+              Run code containing an error to receive
+              conceptual guidance.
             </p>
           )}
 
-          {misconception && (
+          {analysis && (
             <div className="coach-content">
-              <h4>{misconception.title}</h4>
-
-              <p>{misconception.explanation}</p>
+              <h4>{analysis.title}</h4>
+              <p>{analysis.explanation}</p>
 
               <div className="coach-question">
                 <strong>Conceptual Question:</strong>
-                <p>{misconception.question}</p>
+                <p>{analysis.question}</p>
               </div>
 
               <textarea
+                rows={4}
                 placeholder="Explain your understanding..."
                 value={studentAnswer}
                 onChange={(e) => {
                   setStudentAnswer(e.target.value);
-                  setShowHint(false);
+                  setEvaluation(null);
                 }}
-                rows={4}
               />
 
               <button
                 onClick={checkUnderstanding}
-                disabled={!studentAnswer.trim()}
+                disabled={
+                  isEvaluating || !studentAnswer.trim()
+                }
               >
-                Check Understanding
+                {isEvaluating
+                  ? "Evaluating..."
+                  : "Check Understanding"}
               </button>
 
-              {showHint && (
-                <div className="coach-hint">
-                  <strong>Conceptual Hint:</strong>
-                  <p>{misconception.hint}</p>
+              {evaluation && (
+                <div
+                  className={`coach-hint ${evaluation.understanding}`}
+                >
+                  <strong>
+                    Understanding: {evaluation.understanding}
+                  </strong>
+
+                  <p>{evaluation.feedback}</p>
+
+                  <strong>Hint:</strong>
+                  <p>{evaluation.hint}</p>
                 </div>
               )}
             </div>
+          )}
+
+          {error && (
+            <p role="alert" style={{ color: "red" }}>
+              {error}
+            </p>
           )}
         </section>
       </main>

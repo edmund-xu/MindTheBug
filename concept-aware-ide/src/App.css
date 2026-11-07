@@ -73,9 +73,26 @@ pre {
 }
 
 .coach-hint {
-  background: #f0fdf4;
-  border-left: 4px solid #22c55e;
   padding: 14px;
   margin-top: 16px;
   border-radius: 6px;
 }
+
+/* Correct understanding - Green */
+.coach-hint.correct {
+  background: #f0fdf4;
+  border-left: 4px solid #22c55e;
+}
+
+/* Partial understanding - Yellow */
+.coach-hint.partial {
+  background: #fefce8;
+  border-left: 4px solid #eab308;
+}
+
+/* Incorrect understanding - Red */
+.coach-hint.incorrect {
+  background: #fef2f2;
+  border-left: 4px solid #ef4444;
+}
+
