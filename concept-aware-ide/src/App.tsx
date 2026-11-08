@@ -1,27 +1,24 @@
-
 import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
-
 import {
   analyzeCode,
   evaluateAnswer,
   generateCode,
 } from "./ai/api";
-
 import type {
   AIAnalysis,
   AIEvaluation,
   GeneratedCode,
 } from "./ai/api";
-
 import "./App.css";
 
-// Default Python example
 const starterCode = `numbers = [10, 20, 30]
 
 for i in range(3):
     print(numbers[i + 1])
 `;
+
+const MAX_QUESTIONS = 3;
 
 type PythonResult = {
   success: boolean;
@@ -30,46 +27,57 @@ type PythonResult = {
 
 type Mode = "debug" | "generate";
 
+type TutoringStatus =
+  | "active"
+  | "understood"
+  | "skipped"
+  | "needs-practice";
+
 function App() {
-  // Python editor state
   const [code, setCode] = useState(starterCode);
   const [output, setOutput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
-  // Interaction mode
   const [mode, setMode] = useState<Mode>("debug");
 
-  // Misconception debugging state
   const [analysis, setAnalysis] =
     useState<AIAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // AI code generation state
   const [generationRequest, setGenerationRequest] =
     useState("");
   const [generatedCode, setGeneratedCode] =
     useState<GeneratedCode | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Understanding evaluation state
+  const [currentQuestion, setCurrentQuestion] =
+    useState("");
+  const [questionCount, setQuestionCount] = useState(0);
   const [studentAnswer, setStudentAnswer] = useState("");
   const [evaluation, setEvaluation] =
     useState<AIEvaluation | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
 
-  // Error messages
+  const [tutoringStatus, setTutoringStatus] =
+    useState<TutoringStatus>("active");
+
   const [error, setError] = useState("");
 
-  // Worker and request references
   const workerRef = useRef<Worker | null>(null);
   const submittedCodeRef = useRef("");
-  const modeRef = useRef<Mode>(mode);
-  const requestIdRef = useRef(0);
+  const modeRef = useRef<Mode>("debug");
+  const requestVersionRef = useRef(0);
 
-  // Keep the current mode accessible to the worker callback
   modeRef.current = mode;
 
-  // Initialize Pyodide Web Worker
+  function resetTutoring() {
+    setCurrentQuestion("");
+    setQuestionCount(0);
+    setStudentAnswer("");
+    setEvaluation(null);
+    setTutoringStatus("active");
+  }
+
   useEffect(() => {
     const worker = new Worker(
       new URL("./python.worker.ts", import.meta.url),
@@ -84,15 +92,11 @@ function App() {
       setOutput(result.output);
       setIsRunning(false);
 
-      // Python errors are captured as text by our worker.
-      // success=true means the worker completed, not
-      // necessarily that the student's Python code succeeded.
       const hasPythonError =
         /(?:Traceback \(most recent call last\)|SyntaxError:|IndentationError:)/.test(
           result.output
         );
 
-      // Only analyze errors in debugging mode
       if (
         !result.success ||
         !hasPythonError ||
@@ -101,34 +105,33 @@ function App() {
         return;
       }
 
-      const currentRequestId = ++requestIdRef.current;
+      const version = requestVersionRef.current;
+      const submittedCode = submittedCodeRef.current;
 
       setIsAnalyzing(true);
 
       try {
         const aiResult = await analyzeCode(
-          submittedCodeRef.current,
+          submittedCode,
           result.output
         );
 
-        // Ignore outdated AI responses
-        if (currentRequestId !== requestIdRef.current) {
-          return;
-        }
+        if (version !== requestVersionRef.current) return;
 
-        if (modeRef.current === "debug") {
-          setAnalysis(aiResult);
-        }
+        setAnalysis(aiResult);
+        setCurrentQuestion(aiResult.question);
+        setQuestionCount(1);
+        setTutoringStatus("active");
       } catch (err) {
-        if (currentRequestId === requestIdRef.current) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "AI analysis failed"
-          );
-        }
+        if (version !== requestVersionRef.current) return;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "AI analysis failed"
+        );
       } finally {
-        if (currentRequestId === requestIdRef.current) {
+        if (version === requestVersionRef.current) {
           setIsAnalyzing(false);
         }
       }
@@ -143,28 +146,22 @@ function App() {
     workerRef.current = worker;
 
     return () => {
-      requestIdRef.current++;
       worker.terminate();
       workerRef.current = null;
     };
   }, []);
 
-  // Switch between interaction modes
-  function switchMode(newMode: Mode) {
-    requestIdRef.current++;
+  function changeMode(nextMode: Mode) {
+    requestVersionRef.current += 1;
 
-    setMode(newMode);
-    modeRef.current = newMode;
-
+    setMode(nextMode);
     setAnalysis(null);
     setGeneratedCode(null);
-    setEvaluation(null);
-    setStudentAnswer("");
-    setError("");
     setIsAnalyzing(false);
+    setError("");
+    resetTutoring();
   }
 
-  // Execute Python code
   function runCode() {
     if (
       !workerRef.current ||
@@ -175,76 +172,82 @@ function App() {
       return;
     }
 
-    requestIdRef.current++;
+    requestVersionRef.current += 1;
     submittedCodeRef.current = code;
 
     setIsRunning(true);
     setOutput("Running Python...");
-
     setAnalysis(null);
-    setEvaluation(null);
-    setStudentAnswer("");
+    setIsAnalyzing(false);
     setError("");
+
+    if (mode === "debug") {
+      resetTutoring();
+    }
 
     workerRef.current.postMessage(code);
   }
 
-  // Generate Python code using AI
   async function handleGenerateCode() {
-    if (!generationRequest.trim() || isGenerating) {
+    if (
+      !generationRequest.trim() ||
+      isGenerating ||
+      isRunning
+    ) {
       return;
     }
 
-    const currentRequestId = ++requestIdRef.current;
+    requestVersionRef.current += 1;
+    const version = requestVersionRef.current;
 
     setIsGenerating(true);
     setError("");
     setGeneratedCode(null);
-    setEvaluation(null);
-    setStudentAnswer("");
+    setAnalysis(null);
+    setOutput("");
+    resetTutoring();
 
     try {
       const result = await generateCode(generationRequest);
 
-      if (currentRequestId !== requestIdRef.current) {
-        return;
-      }
+      if (version !== requestVersionRef.current) return;
 
       setGeneratedCode(result);
       setCode(result.code);
       submittedCodeRef.current = result.code;
 
-      setOutput("");
-      setAnalysis(null);
+      setCurrentQuestion(result.question);
+      setQuestionCount(1);
+      setTutoringStatus("active");
     } catch (err) {
-      if (currentRequestId === requestIdRef.current) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to generate code"
-        );
-      }
+      if (version !== requestVersionRef.current) return;
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to generate code"
+      );
     } finally {
-      setIsGenerating(false);
+      if (version === requestVersionRef.current) {
+        setIsGenerating(false);
+      }
     }
   }
 
-  // Evaluate the student's conceptual explanation
   async function checkUnderstanding() {
-    const question =
-      mode === "debug"
-        ? analysis?.question
-        : generatedCode?.question;
-
     if (
-      !question ||
+      !currentQuestion ||
       !studentAnswer.trim() ||
-      isEvaluating
+      isEvaluating ||
+      tutoringStatus !== "active" ||
+      evaluation
     ) {
       return;
     }
 
-    const currentRequestId = ++requestIdRef.current;
+    const version = requestVersionRef.current;
+    const question = currentQuestion;
+    const answer = studentAnswer;
 
     setIsEvaluating(true);
     setError("");
@@ -253,53 +256,83 @@ function App() {
       const result = await evaluateAnswer(
         submittedCodeRef.current,
         question,
-        studentAnswer
+        answer
       );
 
-      if (currentRequestId !== requestIdRef.current) {
-        return;
-      }
+      if (version !== requestVersionRef.current) return;
 
       setEvaluation(result);
-    } catch (err) {
-      if (currentRequestId === requestIdRef.current) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Evaluation failed"
-        );
+
+      if (result.understanding === "correct") {
+        setTutoringStatus("understood");
+      } else if (questionCount >= MAX_QUESTIONS) {
+        setTutoringStatus("needs-practice");
       }
+    } catch (err) {
+      if (version !== requestVersionRef.current) return;
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Evaluation failed"
+      );
     } finally {
-      setIsEvaluating(false);
+      if (version === requestVersionRef.current) {
+        setIsEvaluating(false);
+      }
     }
   }
 
+  function continueTutoring() {
+    if (
+      !evaluation?.followUpQuestion ||
+      questionCount >= MAX_QUESTIONS
+    ) {
+      return;
+    }
+
+    setCurrentQuestion(evaluation.followUpQuestion);
+    setQuestionCount((count) => count + 1);
+    setStudentAnswer("");
+    setEvaluation(null);
+    setTutoringStatus("active");
+  }
+
+  function skipTutoring() {
+    requestVersionRef.current += 1;
+    setTutoringStatus("skipped");
+    setStudentAnswer("");
+    setEvaluation(null);
+    setIsEvaluating(false);
+  }
+
+  const hasTutoringQuestion =
+    (mode === "debug" && analysis !== null) ||
+    (mode === "generate" && generatedCode !== null);
+
   return (
     <div className="app">
-      {/* Header */}
       <header>
         <h2>Concept-Aware Programming Support</h2>
       </header>
 
       <main>
-        {/* Interaction mode selector */}
         <div className="mode-selector">
           <button
             className={mode === "debug" ? "active" : ""}
-            onClick={() => switchMode("debug")}
+            onClick={() => changeMode("debug")}
           >
             Misconception Debugging
           </button>
 
           <button
             className={mode === "generate" ? "active" : ""}
-            onClick={() => switchMode("generate")}
+            onClick={() => changeMode("generate")}
           >
             AI Code Assistance
           </button>
         </div>
 
-        {/* Python Editor */}
         <section className="editor-panel">
           <h3>main.py</h3>
 
@@ -308,22 +341,17 @@ function App() {
             language="python"
             theme="vs-dark"
             value={code}
-            onChange={(value) => {
-              setCode(value ?? "");
-            }}
+            onChange={(value) => setCode(value ?? "")}
             options={{
               minimap: { enabled: false },
               fontSize: 14,
-              automaticLayout: true,
             }}
           />
 
           <button
             onClick={runCode}
             disabled={
-              isRunning ||
-              isAnalyzing ||
-              isGenerating
+              isRunning || isAnalyzing || isGenerating
             }
           >
             {isRunning ? "Running..." : "Run Code"}
@@ -333,11 +361,9 @@ function App() {
           <pre>{output}</pre>
         </section>
 
-        {/* AI Concept Coach */}
         <section className="ai-panel">
           <h3>AI Concept Coach</h3>
 
-          {/* MODE 1: Misconception Debugging */}
           {mode === "debug" && (
             <>
               {isAnalyzing && (
@@ -346,27 +372,20 @@ function App() {
 
               {!analysis && !isAnalyzing && (
                 <p>
-                  Run code containing an error to receive
-                  conceptual guidance.
+                  Run Python code containing an error
+                  to receive conceptual guidance.
                 </p>
               )}
 
               {analysis && (
                 <div className="coach-content">
                   <h4>{analysis.title}</h4>
-
                   <p>{analysis.explanation}</p>
-
-                  <div className="coach-question">
-                    <strong>Conceptual Question:</strong>
-                    <p>{analysis.question}</p>
-                  </div>
                 </div>
               )}
             </>
           )}
 
-          {/* MODE 2: AI Code Assistance */}
           {mode === "generate" && (
             <>
               <h4>Generate Python Code</h4>
@@ -384,6 +403,7 @@ function App() {
                 onClick={handleGenerateCode}
                 disabled={
                   isGenerating ||
+                  isRunning ||
                   !generationRequest.trim()
                 }
               >
@@ -395,68 +415,138 @@ function App() {
               {generatedCode && (
                 <div className="coach-content">
                   <h4>AI-Generated Code</h4>
-
                   <p>{generatedCode.explanation}</p>
-
                   <p>
                     The generated code has been inserted
                     into the editor.
                   </p>
-
-                  <div className="coach-question">
-                    <strong>Understanding Check:</strong>
-                    <p>{generatedCode.question}</p>
-                  </div>
                 </div>
               )}
             </>
           )}
 
-          {/* Shared understanding evaluation */}
-          {((mode === "debug" && analysis) ||
-            (mode === "generate" && generatedCode)) && (
+          {hasTutoringQuestion && (
             <div className="coach-content">
-              <textarea
-                rows={4}
-                placeholder="Explain your understanding..."
-                value={studentAnswer}
-                onChange={(e) => {
-                  setStudentAnswer(e.target.value);
-                  setEvaluation(null);
-                }}
-              />
 
-              <button
-                onClick={checkUnderstanding}
-                disabled={
-                  isEvaluating ||
-                  !studentAnswer.trim()
-                }
-              >
-                {isEvaluating
-                  ? "Evaluating..."
-                  : "Check Understanding"}
-              </button>
+              {tutoringStatus === "active" && (
+                <>
+                  <p className="question-progress">
+                    Question {questionCount} of {MAX_QUESTIONS}
+                  </p>
 
-              {/* Color-coded evaluation feedback */}
-              {evaluation && (
-                <div
-                  className={`coach-hint ${evaluation.understanding}`}
-                >
-                  <strong>
-                    Understanding: {evaluation.understanding}
-                  </strong>
+                  <div className="coach-question">
+                    <strong>Understanding Check:</strong>
+                    <p>{currentQuestion}</p>
+                  </div>
 
-                  <p>{evaluation.feedback}</p>
+                  <textarea
+                    rows={4}
+                    placeholder="Explain your understanding..."
+                    value={studentAnswer}
+                    onChange={(e) => {
+                      setStudentAnswer(e.target.value);
+                      setEvaluation(null);
+                    }}
+                    disabled={isEvaluating}
+                  />
 
-                  <strong>Hint:</strong>
-                  <p>{evaluation.hint}</p>
+                  <button
+                    onClick={checkUnderstanding}
+                    disabled={
+                      isEvaluating ||
+                      !studentAnswer.trim() ||
+                      evaluation !== null
+                    }
+                  >
+                    {isEvaluating
+                      ? "Evaluating..."
+                      : "Check Understanding"}
+                  </button>
+
+                  <button
+                    className="skip-button"
+                    onClick={skipTutoring}
+                    disabled={isEvaluating}
+                  >
+                    Skip and Continue Coding
+                  </button>
+
+                  {evaluation && (
+                    <div
+                      className={`coach-hint ${evaluation.understanding}`}
+                    >
+                      <strong>
+                        Understanding: {evaluation.understanding}
+                      </strong>
+
+                      <p>{evaluation.feedback}</p>
+
+                      {evaluation.hint && (
+                        <>
+                          <strong>Hint:</strong>
+                          <p>{evaluation.hint}</p>
+                        </>
+                      )}
+
+                      {evaluation.followUpQuestion &&
+                        questionCount < MAX_QUESTIONS && (
+                          <button onClick={continueTutoring}>
+                            Try Another Question
+                          </button>
+                        )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {tutoringStatus === "understood" && (
+                <div className="tutoring-complete">
+                  <h4>Understanding Demonstrated!</h4>
+                  <p>
+                    You can continue editing and running
+                    your Python code.
+                  </p>
+                  {evaluation && <p>{evaluation.feedback}</p>}
+                </div>
+              )}
+
+              {tutoringStatus === "skipped" && (
+                <div className="tutoring-complete">
+                  <h4>Tutoring Skipped</h4>
+                  <p>
+                    You can continue coding. Your
+                    understanding has not been evaluated.
+                  </p>
+                </div>
+              )}
+
+              {tutoringStatus === "needs-practice" && (
+                <div className="tutoring-needs-practice">
+                  <h4>Let's Keep Practicing!</h4>
+
+                  <p>
+                    You've completed all {MAX_QUESTIONS} questions. You can continue coding
+                    and revisit this concept later.
+                  </p>
+
+                  {evaluation && (
+                    <>
+                      <strong>Final Feedback:</strong>
+                      <p>{evaluation.feedback}</p>
+
+                      {evaluation.hint && (
+                        <>
+                          <strong>Conceptual Hint:</strong>
+                          <p>{evaluation.hint}</p>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Error messages */}
           {error && (
             <p role="alert" style={{ color: "red" }}>
               {error}

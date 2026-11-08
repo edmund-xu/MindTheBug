@@ -120,3 +120,58 @@ pre {
 .mode-selector button:hover {
   opacity: 0.9;
 }
+
+
+.question-progress {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 16px;
+}
+
+.skip-button {
+  background: transparent;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  margin-left: 8px;
+}
+
+.skip-button:hover {
+  background: #f1f5f9;
+}
+
+.tutoring-complete {
+  background: #f0fdf4;
+  border-left: 4px solid #22c55e;
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.tutoring-complete h4 {
+  margin-top: 0;
+}
+
+
+/* Question progress indicator */
+.question-progress {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 16px;
+}
+
+/* Final state when more practice is needed */
+.tutoring-needs-practice {
+  background: #fffbeb;
+  border-left: 4px solid #f59e0b;
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.tutoring-needs-practice h4 {
+  color: #92400e;
+  margin-top: 0;
+}
+

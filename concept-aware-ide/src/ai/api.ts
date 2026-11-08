@@ -8,6 +8,7 @@ export type AIAnalysis = {
     understanding: "correct" | "partial" | "incorrect";
     feedback: string;
     hint: string;
+    followUpQuestion: string | null;
   };
   
   export async function analyzeCode(
