@@ -7,7 +7,7 @@ Make sure you have the following installed:
 - **Node.js** — https://nodejs.org/
 - **Git** — https://git-scm.com/
 
-You will also need an **OpenAI API key** to use the AI features.
+You will also need an **OpenAI API key** to use the AI features: https://platform.openai.com/home
 
 ## 2. Install Dependencies
 
