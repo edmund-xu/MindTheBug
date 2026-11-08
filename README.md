@@ -29,7 +29,7 @@ OPENAI_API_KEY=your_api_key_here
 
 Replace `your_api_key_here` with your OpenAI API key.
 
-**Important:** Do not commit or push your `.env` file to GitHub.
+**Important:** Do not commit or push your `.env` file to GitHub. (The .gitignore should already ignore it so no need to remember)
 
 ## 5. Run the Project
 
