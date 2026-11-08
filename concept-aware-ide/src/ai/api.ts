@@ -1,8 +1,13 @@
+
 export type AIAnalysis = {
     title: string;
     explanation: string;
     question: string;
+    confidence: "high" | "medium" | "low";
+    reasoning: string;
+    alternativeExplanation: string | null;
   };
+  
   
   export type AIEvaluation = {
     understanding: "correct" | "partial" | "incorrect";
@@ -74,4 +79,26 @@ export type AIAnalysis = {
     
         return response.json();
     }  
+
+export async function requestHint(
+    code: string,
+    question: string
+  ): Promise<string> {
+    const response = await fetch("/api/hint", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ code, question }),
+    });
+  
+    if (!response.ok) {
+      throw new Error("Failed to generate hint");
+    }
+  
+    const data: { hint: string } = await response.json();
+  
+    return data.hint;
+  }
+  
     

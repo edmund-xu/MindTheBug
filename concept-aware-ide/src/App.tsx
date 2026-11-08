@@ -4,6 +4,7 @@ import {
   analyzeCode,
   evaluateAnswer,
   generateCode,
+  requestHint,
 } from "./ai/api";
 import type {
   AIAnalysis,
@@ -19,6 +20,7 @@ for i in range(3):
 `;
 
 const MAX_QUESTIONS = 3;
+const EXECUTION_TIMEOUT_MS = 10000;
 
 type PythonResult = {
   success: boolean;
@@ -34,61 +36,100 @@ type TutoringStatus =
   | "needs-practice";
 
 function App() {
+  // Python editor
   const [code, setCode] = useState(starterCode);
   const [output, setOutput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
+  // Interaction mode
   const [mode, setMode] = useState<Mode>("debug");
 
+  // Misconception analysis
   const [analysis, setAnalysis] =
     useState<AIAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // AI code generation
   const [generationRequest, setGenerationRequest] =
     useState("");
   const [generatedCode, setGeneratedCode] =
     useState<GeneratedCode | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const [currentQuestion, setCurrentQuestion] =
-    useState("");
+  // Adaptive tutoring
+  const [currentQuestion, setCurrentQuestion] = useState("");
   const [questionCount, setQuestionCount] = useState(0);
   const [studentAnswer, setStudentAnswer] = useState("");
   const [evaluation, setEvaluation] =
     useState<AIEvaluation | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
-
   const [tutoringStatus, setTutoringStatus] =
     useState<TutoringStatus>("active");
 
+  // Transparency and student control
+  const [showReasoning, setShowReasoning] = useState(false);
+  const [hint, setHint] = useState("");
+  const [isLoadingHint, setIsLoadingHint] = useState(false);
+  const [guidanceDismissed, setGuidanceDismissed] =
+    useState(false);
+
   const [error, setError] = useState("");
 
+  // Worker and request management
   const workerRef = useRef<Worker | null>(null);
+  const timeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const executionIdRef = useRef(0);
+  const requestVersionRef = useRef(0);
+  const hintRequestRef = useRef(0);
+
   const submittedCodeRef = useRef("");
   const modeRef = useRef<Mode>("debug");
-  const requestVersionRef = useRef(0);
 
   modeRef.current = mode;
 
+  function clearExecutionTimeout() {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }
+
   function resetTutoring() {
+    hintRequestRef.current += 1;
+
     setCurrentQuestion("");
     setQuestionCount(0);
     setStudentAnswer("");
     setEvaluation(null);
+    setIsEvaluating(false);
     setTutoringStatus("active");
+
+    setShowReasoning(false);
+    setHint("");
+    setIsLoadingHint(false);
+    setGuidanceDismissed(false);
   }
 
-  useEffect(() => {
+  function createPythonWorker() {
     const worker = new Worker(
       new URL("./python.worker.ts", import.meta.url),
       { type: "module" }
     );
 
+    const workerExecutionId = executionIdRef.current;
+
     worker.onmessage = async (
       event: MessageEvent<PythonResult>
     ) => {
+      if (workerExecutionId !== executionIdRef.current) {
+        return;
+      }
+
       const result = event.data;
 
+      clearExecutionTimeout();
       setOutput(result.output);
       setIsRunning(false);
 
@@ -138,16 +179,40 @@ function App() {
     };
 
     worker.onerror = () => {
-      setOutput("Failed to initialize Python runtime.");
+      if (workerExecutionId !== executionIdRef.current) {
+        return;
+      }
+
+      clearExecutionTimeout();
+
+      setOutput("Python execution failed.");
       setIsRunning(false);
-      setError("Python worker failed.");
+      setError("Python worker encountered an error.");
+
+      resetPythonWorker();
     };
 
     workerRef.current = worker;
+  }
+
+  function resetPythonWorker() {
+    clearExecutionTimeout();
+
+    workerRef.current?.terminate();
+    workerRef.current = null;
+
+    executionIdRef.current += 1;
+    createPythonWorker();
+  }
+
+  useEffect(() => {
+    createPythonWorker();
 
     return () => {
-      worker.terminate();
+      clearExecutionTimeout();
+      workerRef.current?.terminate();
       workerRef.current = null;
+      executionIdRef.current += 1;
     };
   }, []);
 
@@ -158,6 +223,7 @@ function App() {
     setAnalysis(null);
     setGeneratedCode(null);
     setIsAnalyzing(false);
+    setIsGenerating(false);
     setError("");
     resetTutoring();
   }
@@ -185,7 +251,37 @@ function App() {
       resetTutoring();
     }
 
+    const currentExecutionId = executionIdRef.current;
+
+    clearExecutionTimeout();
+
+    timeoutRef.current = setTimeout(() => {
+      if (currentExecutionId !== executionIdRef.current) {
+        return;
+      }
+
+      resetPythonWorker();
+
+      setIsRunning(false);
+      setOutput(
+        "Execution timed out after 10 seconds.\n" +
+          "Check your code for infinite loops or slow operations."
+      );
+    }, EXECUTION_TIMEOUT_MS);
+
     workerRef.current.postMessage(code);
+  }
+
+  function stopCode() {
+    if (!isRunning) return;
+
+    resetPythonWorker();
+
+    setIsRunning(false);
+    setOutput(
+      "Execution stopped by user.\n" +
+        "You can edit your code and run it again."
+    );
   }
 
   async function handleGenerateCode() {
@@ -240,7 +336,8 @@ function App() {
       !studentAnswer.trim() ||
       isEvaluating ||
       tutoringStatus !== "active" ||
-      evaluation
+      evaluation ||
+      guidanceDismissed
     ) {
       return;
     }
@@ -291,6 +388,10 @@ function App() {
       return;
     }
 
+    hintRequestRef.current += 1;
+    setHint("");
+    setIsLoadingHint(false);
+
     setCurrentQuestion(evaluation.followUpQuestion);
     setQuestionCount((count) => count + 1);
     setStudentAnswer("");
@@ -300,10 +401,73 @@ function App() {
 
   function skipTutoring() {
     requestVersionRef.current += 1;
+    hintRequestRef.current += 1;
+
     setTutoringStatus("skipped");
     setStudentAnswer("");
     setEvaluation(null);
     setIsEvaluating(false);
+    setIsLoadingHint(false);
+  }
+
+  async function handleRequestHint() {
+    if (
+      !currentQuestion ||
+      isLoadingHint ||
+      hint ||
+      guidanceDismissed
+    ) {
+      return;
+    }
+
+    const requestId = ++hintRequestRef.current;
+    const version = requestVersionRef.current;
+
+    setIsLoadingHint(true);
+    setError("");
+
+    try {
+      const generatedHint = await requestHint(
+        submittedCodeRef.current,
+        currentQuestion
+      );
+
+      if (
+        requestId !== hintRequestRef.current ||
+        version !== requestVersionRef.current
+      ) {
+        return;
+      }
+
+      setHint(generatedHint);
+    } catch (err) {
+      if (
+        requestId !== hintRequestRef.current ||
+        version !== requestVersionRef.current
+      ) {
+        return;
+      }
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to generate hint"
+      );
+    } finally {
+      if (requestId === hintRequestRef.current) {
+        setIsLoadingHint(false);
+      }
+    }
+  }
+
+  function dismissGuidance() {
+    hintRequestRef.current += 1;
+    requestVersionRef.current += 1;
+
+    setGuidanceDismissed(true);
+    setIsLoadingHint(false);
+    setIsEvaluating(false);
+    setError("");
   }
 
   const hasTutoringQuestion =
@@ -317,6 +481,7 @@ function App() {
       </header>
 
       <main>
+        {/* Interaction mode selection */}
         <div className="mode-selector">
           <button
             className={mode === "debug" ? "active" : ""}
@@ -333,6 +498,7 @@ function App() {
           </button>
         </div>
 
+        {/* Python editor */}
         <section className="editor-panel">
           <h3>main.py</h3>
 
@@ -348,22 +514,34 @@ function App() {
             }}
           />
 
-          <button
-            onClick={runCode}
-            disabled={
-              isRunning || isAnalyzing || isGenerating
-            }
-          >
-            {isRunning ? "Running..." : "Run Code"}
-          </button>
+          <div className="execution-controls">
+            <button
+              onClick={runCode}
+              disabled={
+                isRunning || isAnalyzing || isGenerating
+              }
+            >
+              {isRunning ? "Running..." : "Run Code"}
+            </button>
+
+            <button
+              className="stop-button"
+              onClick={stopCode}
+              disabled={!isRunning}
+            >
+              Stop Code
+            </button>
+          </div>
 
           <h3>Output</h3>
           <pre>{output}</pre>
         </section>
 
+        {/* AI Concept Coach */}
         <section className="ai-panel">
           <h3>AI Concept Coach</h3>
 
+          {/* Flow 1: Misconception debugging */}
           {mode === "debug" && (
             <>
               {isAnalyzing && (
@@ -377,15 +555,62 @@ function App() {
                 </p>
               )}
 
-              {analysis && (
+              {analysis && !guidanceDismissed && (
                 <div className="coach-content">
-                  <h4>{analysis.title}</h4>
+                  <div className="analysis-heading">
+                    <h4>{analysis.title}</h4>
+
+                    <span
+                      className={`confidence-badge ${analysis.confidence}`}
+                    >
+                      {analysis.confidence} confidence
+                    </span>
+                  </div>
+
                   <p>{analysis.explanation}</p>
+
+                  <button
+                    className="secondary-button"
+                    onClick={() =>
+                      setShowReasoning(!showReasoning)
+                    }
+                  >
+                    {showReasoning
+                      ? "Hide AI Explanation"
+                      : "Why does the AI think this?"}
+                  </button>
+
+                  {showReasoning && (
+                    <div className="reasoning-panel">
+                      <strong>
+                        Evidence from your code:
+                      </strong>
+                      <p>{analysis.reasoning}</p>
+
+                      {analysis.alternativeExplanation && (
+                        <>
+                          <strong>
+                            Another possible explanation:
+                          </strong>
+                          <p>
+                            {analysis.alternativeExplanation}
+                          </p>
+                        </>
+                      )}
+
+                      <p className="uncertainty-note">
+                        This is an AI-generated hypothesis,
+                        not proof that you misunderstand
+                        the concept.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </>
           )}
 
+          {/* Flow 2: AI code assistance */}
           {mode === "generate" && (
             <>
               <h4>Generate Python Code</h4>
@@ -412,7 +637,7 @@ function App() {
                   : "Generate Code"}
               </button>
 
-              {generatedCode && (
+              {generatedCode && !guidanceDismissed && (
                 <div className="coach-content">
                   <h4>AI-Generated Code</h4>
                   <p>{generatedCode.explanation}</p>
@@ -425,9 +650,9 @@ function App() {
             </>
           )}
 
-          {hasTutoringQuestion && (
+          {/* Shared tutoring */}
+          {hasTutoringQuestion && !guidanceDismissed && (
             <div className="coach-content">
-
               {tutoringStatus === "active" && (
                 <>
                   <p className="question-progress">
@@ -438,6 +663,34 @@ function App() {
                     <strong>Understanding Check:</strong>
                     <p>{currentQuestion}</p>
                   </div>
+
+                  <div className="tutoring-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={handleRequestHint}
+                      disabled={isLoadingHint || !!hint}
+                    >
+                      {isLoadingHint
+                        ? "Generating Hint..."
+                        : hint
+                          ? "Hint Provided"
+                          : "Give Me a Hint"}
+                    </button>
+
+                    <button
+                      className="secondary-button"
+                      onClick={dismissGuidance}
+                    >
+                      Dismiss Guidance
+                    </button>
+                  </div>
+
+                  {hint && (
+                    <div className="hint-panel">
+                      <strong>Conceptual Hint:</strong>
+                      <p>{hint}</p>
+                    </div>
+                  )}
 
                   <textarea
                     rows={4}
@@ -506,7 +759,10 @@ function App() {
                     You can continue editing and running
                     your Python code.
                   </p>
-                  {evaluation && <p>{evaluation.feedback}</p>}
+
+                  {evaluation && (
+                    <p>{evaluation.feedback}</p>
+                  )}
                 </div>
               )}
 
@@ -514,8 +770,8 @@ function App() {
                 <div className="tutoring-complete">
                   <h4>Tutoring Skipped</h4>
                   <p>
-                    You can continue coding. Your
-                    understanding has not been evaluated.
+                    Your understanding has not been
+                    evaluated. You can continue coding.
                   </p>
                 </div>
               )}
@@ -525,7 +781,8 @@ function App() {
                   <h4>Let's Keep Practicing!</h4>
 
                   <p>
-                    You've completed all {MAX_QUESTIONS} questions. You can continue coding
+                    You've completed all {MAX_QUESTIONS}
+                    questions. You can continue coding
                     and revisit this concept later.
                   </p>
 
@@ -544,6 +801,23 @@ function App() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Dismissed guidance */}
+          {guidanceDismissed && (
+            <div className="guidance-dismissed">
+              <p>
+                AI guidance dismissed. Your Python code
+                has not been changed.
+              </p>
+
+              <button
+                className="secondary-button"
+                onClick={() => setGuidanceDismissed(false)}
+              >
+                Restore Guidance
+              </button>
             </div>
           )}
 

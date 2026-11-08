@@ -7,6 +7,7 @@ import {
     misconceptionPrompt,
     evaluationPrompt,
     codeGenerationPrompt,
+    hintPrompt,
 } from "./prompts";
 
 const app = express();
@@ -151,6 +152,61 @@ app.post("/api/generate", async (req, res) => {
   
       res.status(500).json({
         error: "Failed to generate Python code",
+      });
+    }
+  });  
+
+
+app.post("/api/hint", async (req, res) => {
+    try {
+      const { code, question } = req.body ?? {};
+  
+      if (
+        typeof code !== "string" ||
+        typeof question !== "string" ||
+        !question.trim() ||
+        code.length > 20000 ||
+        question.length > 2000
+      ) {
+        res.status(400).json({
+          error: "Invalid hint request",
+        });
+        return;
+      }
+  
+      const response = await client.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: hintPrompt,
+          },
+          {
+            role: "user",
+            content: JSON.stringify({ code, question }),
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+  
+      const content = response.choices[0]?.message.content;
+  
+      if (!content) {
+        throw new Error("Empty AI response");
+      }
+  
+      const result = JSON.parse(content);
+  
+      if (typeof result.hint !== "string") {
+        throw new Error("Invalid hint response");
+      }
+  
+      res.json({ hint: result.hint });
+    } catch (error) {
+      console.error("Hint generation error:", error);
+  
+      res.status(500).json({
+        error: "Failed to generate hint",
       });
     }
   });  
