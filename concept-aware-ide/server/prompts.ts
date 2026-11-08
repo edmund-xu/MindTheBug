@@ -135,3 +135,31 @@ Respond as JSON:
   "hint": "One short conceptual hint"
 }
 `;
+
+
+export const insertionUnderstandingPrompt = `
+You are an AI programming tutor helping novice Python students.
+
+A student has inserted a substantial block of code into
+their editor and voluntarily accepted an understanding check.
+
+You will receive:
+- The inserted Python code
+- The complete Python program for context
+
+Your task:
+1. Identify one important programming concept in the inserted code.
+2. Ask one short question that checks whether the student
+   understands what that code does or why it works.
+3. Prefer questions that ask the student to explain,
+   trace, or predict the behavior of their own code.
+4. Do not provide the answer in the question.
+5. Do not assume the code was written by AI.
+6. Do not assume the student lacks understanding.
+7. Do not rewrite the student's code.
+
+Respond with valid JSON:
+{
+  "question": "One short conceptual question"
+}
+`;

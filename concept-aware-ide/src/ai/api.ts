@@ -101,4 +101,38 @@ export async function requestHint(
     return data.hint;
   }
   
+export async function generateInsertionQuestion(
+    insertedCode: string,
+    fullCode: string
+  ): Promise<string> {
+    const response = await fetch("/api/insertion-question", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        insertedCode,
+        fullCode,
+      }),
+    });
+  
+    if (!response.ok) {
+      throw new Error(
+        "Failed to generate insertion understanding question"
+      );
+    }
+  
+    const data: { question: string } =
+      await response.json();
+  
+    if (
+      typeof data.question !== "string" ||
+      !data.question.trim()
+    ) {
+      throw new Error("Invalid question response");
+    }
+  
+    return data.question;
+  }
+  
     

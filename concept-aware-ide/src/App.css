@@ -296,3 +296,43 @@ pre {
   margin-top: 16px;
 }
 
+
+/* Optional code insertion understanding check */
+
+.insertion-offer {
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-left: 4px solid #3b82f6;
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 16px;
+}
+
+.insertion-offer h4 {
+  color: #1e40af;
+  margin-top: 0;
+}
+
+.insertion-offer details {
+  margin: 12px 0;
+  font-size: 14px;
+  color: #475569;
+}
+
+.insertion-offer summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.insertion-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.insertion-actions button {
+  padding: 10px 14px;
+  border-radius: 6px;
+}
+

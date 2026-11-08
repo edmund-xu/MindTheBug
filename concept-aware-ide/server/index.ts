@@ -8,6 +8,7 @@ import {
     evaluationPrompt,
     codeGenerationPrompt,
     hintPrompt,
+    insertionUnderstandingPrompt,
 } from "./prompts";
 
 const app = express();
@@ -207,6 +208,71 @@ app.post("/api/hint", async (req, res) => {
   
       res.status(500).json({
         error: "Failed to generate hint",
+      });
+    }
+  });  
+
+app.post("/api/insertion-question", async (req, res) => {
+    try {
+      const { insertedCode, fullCode } = req.body ?? {};
+  
+      if (
+        typeof insertedCode !== "string" ||
+        typeof fullCode !== "string" ||
+        !insertedCode.trim() ||
+        insertedCode.length > 20000 ||
+        fullCode.length > 50000
+      ) {
+        res.status(400).json({
+          error: "Invalid code insertion request",
+        });
+        return;
+      }
+  
+      const response = await client.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: insertionUnderstandingPrompt,
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              insertedCode,
+              fullCode,
+            }),
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+  
+      const content = response.choices[0]?.message.content;
+  
+      if (!content) {
+        throw new Error("Empty AI response");
+      }
+  
+      const result = JSON.parse(content);
+  
+      if (
+        typeof result.question !== "string" ||
+        !result.question.trim()
+      ) {
+        throw new Error("Invalid question response");
+      }
+  
+      res.json({
+        question: result.question,
+      });
+    } catch (error) {
+      console.error(
+        "Insertion understanding question error:",
+        error
+      );
+  
+      res.status(500).json({
+        error: "Failed to generate understanding question",
       });
     }
   });  
