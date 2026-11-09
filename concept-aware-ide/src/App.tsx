@@ -547,7 +547,7 @@ function App() {
   return (
     <div className="app">
       <header>
-        <h2>Concept-Aware Programming Support</h2>
+        <h2>Mind The Bug</h2>
       </header>
 
       <main>
