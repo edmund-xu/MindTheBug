@@ -1,4 +1,3 @@
-
 export type AIAnalysis = {
     title: string;
     explanation: string;
@@ -8,7 +7,6 @@ export type AIAnalysis = {
     alternativeExplanation: string | null;
   };
   
-  
   export type AIEvaluation = {
     understanding: "correct" | "partial" | "incorrect";
     feedback: string;
@@ -16,123 +14,123 @@ export type AIAnalysis = {
     followUpQuestion: string | null;
   };
   
+  // --------------------------------------------------
+  // Shared API helper
+  // --------------------------------------------------
+  
+  async function postJSON<T>(
+    endpoint: string,
+    payload: unknown
+  ): Promise<T> {
+    const response = await fetch(endpoint, {
+      method: "POST",
+  
+      headers: {
+        "Content-Type": "application/json",
+      },
+  
+      body: JSON.stringify(payload),
+    });
+  
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`;
+  
+      try {
+        const data: { error?: string } =
+          await response.json();
+  
+        if (data.error) {
+          message = data.error;
+        }
+      } catch {
+        // Use the HTTP status message if no JSON is returned.
+      }
+  
+      throw new Error(message);
+    }
+  
+    return (await response.json()) as T;
+  }
+  
+  // --------------------------------------------------
+  // Feature 1: Misconception debugging
+  // --------------------------------------------------
+  
   export async function analyzeCode(
     code: string,
     output: string
   ): Promise<AIAnalysis> {
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ code, output }),
+    return postJSON<AIAnalysis>("/api/analyze", {
+      code,
+      output,
     });
-  
-    if (!response.ok) {
-      throw new Error("Failed to analyze code");
-    }
-  
-    return response.json();
   }
+  
+  // --------------------------------------------------
+  // Shared adaptive tutoring
+  // --------------------------------------------------
   
   export async function evaluateAnswer(
     code: string,
     question: string,
     answer: string
   ): Promise<AIEvaluation> {
-    const response = await fetch("/api/evaluate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ code, question, answer }),
+    return postJSON<AIEvaluation>("/api/evaluate", {
+      code,
+      question,
+      answer,
     });
-  
-    if (!response.ok) {
-      throw new Error("Failed to evaluate answer");
-    }
-  
-    return response.json();
-  }
-
-
-    export type GeneratedCode = {
-        code: string;
-        explanation: string;
-        question: string;
-    };
-    
-    export async function generateCode(
-        request: string
-    ): Promise<GeneratedCode> {
-        const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ request }),
-        });
-    
-        if (!response.ok) {
-        throw new Error("Failed to generate code");
-        }
-    
-        return response.json();
-    }  
-
-export async function requestHint(
-    code: string,
-    question: string
-  ): Promise<string> {
-    const response = await fetch("/api/hint", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ code, question }),
-    });
-  
-    if (!response.ok) {
-      throw new Error("Failed to generate hint");
-    }
-  
-    const data: { hint: string } = await response.json();
-  
-    return data.hint;
   }
   
-export async function generateInsertionQuestion(
+  // --------------------------------------------------
+  // Feature 4: Code insertion understanding check
+  // --------------------------------------------------
+  
+  export async function generateInsertionQuestion(
     insertedCode: string,
     fullCode: string
   ): Promise<string> {
-    const response = await fetch("/api/insertion-question", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const result = await postJSON<{ question: string }>(
+      "/api/insertion-question",
+      {
         insertedCode,
         fullCode,
-      }),
-    });
-  
-    if (!response.ok) {
-      throw new Error(
-        "Failed to generate insertion understanding question"
-      );
-    }
-  
-    const data: { question: string } =
-      await response.json();
+      }
+    );
   
     if (
-      typeof data.question !== "string" ||
-      !data.question.trim()
+      typeof result.question !== "string" ||
+      !result.question.trim()
     ) {
       throw new Error("Invalid question response");
     }
   
-    return data.question;
+    return result.question;
   }
   
-    
+  // --------------------------------------------------
+  // Optional conceptual hint
+  // --------------------------------------------------
+  
+  export async function requestHint(
+    code: string,
+    question: string
+  ): Promise<string> {
+    const result = await postJSON<{ hint: string }>(
+      "/api/hint",
+      {
+        code,
+        question,
+      }
+    );
+  
+    if (
+      typeof result.hint !== "string" ||
+      !result.hint.trim()
+    ) {
+      throw new Error("Invalid hint response");
+    }
+  
+    return result.hint;
+  }
+  
